@@ -1,4 +1,4 @@
-# Memory Hierarchy Simulator
+
 
 ## Overview
 
@@ -12,7 +12,7 @@ This project implements a **Memory Hierarchy Simulator** that showcases how data
 * Simulates full memory hierarchy:
 
   * SSD → DRAM → L3 Cache → L2 Cache → L1 Cache → CPU
-* Interactive command-line interface
+* Command-line interface
 * Instruction access tracing
 * Data movement visualization across memory levels
 * Cache hit and miss tracking
@@ -55,7 +55,7 @@ The simulator supports the following commands:
 | Command                 | Description                                  |
 | ----------------------- | -------------------------------------------- |
 | `LOAD <address> <data>` | Loads data into the system starting from SSD |
-| `R <address>`           | Reads data (fetch operation)                 |
+| `R <address>`           | Reads data                  
 | `W <address> <data>`    | Writes data to memory                        |
 | `SHOW`                  | Displays final memory state and performance  |
 | `Q`                     | Exits the program                            |
@@ -120,28 +120,3 @@ L1    | Size: 3/3 | Data: ['A', 'B', 'C']
 
 ---
 
-## System Behavior
-
-### Read Operation
-* If data is found → **Cache Hit**
-* If not found → **Cache Miss**
-* Data is promoted upward to L1 cache
-
-### Write Operation
-
-* Data is written to L1 cache first
-* Then propagated downward through all levels (write-back behavior)
-
-### Load Operation
-
-* Simulates loading data from SSD into all higher memory levels
-
----
-
-## Design Details
-
-* **MemoryLevel Class**: Represents SSD and DRAM
-* **Cache Class**: Implements LRU cache using `OrderedDict`
-* **MemorySystem Class**: Controls hierarchy operations and simulation logic
-
----
