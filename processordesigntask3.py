@@ -8,193 +8,211 @@ class MemoryLevel:
         self.storage = OrderedDict()
 
     def read(self, address):
-        if address in self.storage:
-            value = self.storage.pop(address)
-            self.storage[address] = value
-            return value
-        return None
+        return self.storage.get(address)
 
     def write(self, address, data):
         if address in self.storage:
-            self.storage.pop(address)
+            del self.storage[address]
+
         elif len(self.storage) >= self.size:
-            evicted = self.storage.popitem(last=False)
-            print(f"{self.name}: Evicting {evicted[0]}")
+            evicted_address, evicted_data = self.storage.popitem(last=False)
+            print(f"[{self.name}] Evicted {evicted_address} = {evicted_data}")
 
         self.storage[address] = data
 
-    def contents(self):
-        return list(self.storage.keys())
+    def display(self):
+        keys = list(self.storage.keys())
+        print(
+            f"{self.name:5} | Size: {len(self.storage)}/{self.size} | Data: {keys}"
+        )
+
+
+class Cache(MemoryLevel):
+    def read(self, address):
+        if address in self.storage:
+            data = self.storage.pop(address)
+            self.storage[address] = data  # Move to end for LRU
+            return data
+        return None
 
 
 class MemorySystem:
-
     def __init__(self):
-
         self.ssd = MemoryLevel("SSD", 100)
         self.dram = MemoryLevel("DRAM", 50)
-        self.l3 = MemoryLevel("L3", 10)
-        self.l2 = MemoryLevel("L2", 5)
-        self.l1 = MemoryLevel("L1", 3)
+        self.l3 = Cache("L3", 10)
+        self.l2 = Cache("L2", 5)
+        self.l1 = Cache("L1", 3)
 
-        self.levels = [self.l1, self.l2, self.l3, self.dram, self.ssd]
+        # Ordered from lowest level to highest level
+        self.levels = [self.ssd, self.dram, self.l3, self.l2, self.l1]
 
-        self.clock = 0
-        self.hits = 0
-        self.misses = 0
+        self.clock_cycles = 0
+        self.cache_hits = 0
+        self.cache_misses = 0
 
-        self.print_configuration()
+    def tick(self, cycles=1):
+        self.clock_cycles += cycles
 
-    def tick(self):
-        self.clock += 1
-
-    def print_configuration(self):
+    def show_configuration(self):
         print("\n===== MEMORY HIERARCHY CONFIGURATION =====")
-        print("SSD (Capacity: 100)")
-        print("DRAM (Capacity: 50)")
-        print("L3  (Capacity: 10)")
-        print("L2  (Capacity: 5)")
-        print("L1  (Capacity: 3)")
+        print(f"SSD  (Capacity: {self.ssd.size})")
+        print(f"DRAM (Capacity: {self.dram.size})")
+        print(f"L3   (Capacity: {self.l3.size})")
+        print(f"L2   (Capacity: {self.l2.size})")
+        print(f"L1   (Capacity: {self.l1.size})")
         print("Order: SSD → DRAM → L3 → L2 → L1 → CPU")
         print("==========================================")
 
     def load(self, address, data):
-
         print(f"\n=== LOAD {address} = {data} ===")
 
-        self.ssd.write(address, data)
-
-        prev = "SSD"
         print("Data Movement:")
 
-        for level in [self.dram, self.l3, self.l2, self.l1]:
+        previous = None
+        for level in self.levels:
             level.write(address, data)
-            print(f"  {prev} → {level.name}")
-            prev = level.name
+
+            if previous is not None:
+                print(f"  {previous} → {level.name}")
+
+            previous = level.name
             self.tick()
 
-    def fetch(self, address):
-
+    def read(self, address):
         print(f"\n=== INSTRUCTION TRACE: READ {address} ===")
 
         trace = []
 
-        for i, level in enumerate(self.levels):
-
+        # Search from highest cache level to lowest memory level
+        for index in range(len(self.levels) - 1, -1, -1):
+            level = self.levels[index]
             trace.append(level.name)
 
             data = level.read(address)
+            self.tick()
 
             if data is not None:
-
-                print("Trace Path:", " → ".join(trace))
+                print(f"Trace Path: {' → '.join(trace)}")
                 print(f"Cache Result: HIT at {level.name}")
+                print(f"Data Found: {address} = {data}")
 
-                self.hits += 1
+                self.cache_hits += 1
 
-                self.promote(address, data, i)
+                # Promote data upward toward L1 if it was found lower down
+                if level != self.l1:
+                    print("Data Movement:")
+
+                    for promote_index in range(index + 1, len(self.levels)):
+                        destination = self.levels[promote_index]
+                        source = self.levels[promote_index - 1]
+
+                        destination.write(address, data)
+                        print(f"  {source.name} → {destination.name}")
+                        self.tick()
 
                 return
 
-            self.tick()
-
-        print("Trace Path:", " → ".join(trace))
+        print(f"Trace Path: {' → '.join(trace)}")
         print("Cache Result: MISS")
+        print(f"Address {address} was not found in any memory level.")
 
-        self.misses += 1
-
-    def promote(self, address, data, level_index):
-
-        if level_index == 0:
-            return
-
-        print("Data Movement:")
-
-        for i in range(level_index - 1, -1, -1):
-
-            upper = self.levels[i]
-            lower = self.levels[i + 1]
-
-            upper.write(address, data)
-
-            print(f"  {lower.name} → {upper.name}")
-
-            self.tick()
+        self.cache_misses += 1
 
     def write(self, address, data):
-
         print(f"\n=== INSTRUCTION TRACE: WRITE {address} = {data} ===")
-
-        prev = "CPU"
-
         print("Data Movement:")
 
-        for level in self.levels:
+        # Write starts at L1 and propagates downward
+        write_path = [self.l1, self.l2, self.l3, self.dram, self.ssd]
 
+        previous = "CPU"
+
+        for level in write_path:
             level.write(address, data)
-
-            print(f"  {prev} → {level.name}")
-
-            prev = level.name
-
+            print(f"  {previous} → {level.name}")
+            previous = level.name
             self.tick()
 
-    def show(self):
-
+    def show_final_state(self):
         print("\n========== FINAL MEMORY STATE ==========")
-
-        for level in self.levels[::-1]:
-
-            print(
-                f"{level.name:5} | Size: {len(level.storage)}/{level.size} | Data: {level.contents()}"
-            )
+        self.l1.display()
+        self.l2.display()
+        self.l3.display()
+        self.dram.display()
+        self.ssd.display()
 
         print("\n========== PERFORMANCE ==========")
-
-        print("Total Clock Cycles :", self.clock)
-        print("Total Cache Hits   :", self.hits)
-        print("Total Cache Misses :", self.misses)
-
+        print(f"Total Clock Cycles : {self.clock_cycles}")
+        print(f"Total Cache Hits   : {self.cache_hits}")
+        print(f"Total Cache Misses : {self.cache_misses}")
         print("=================================")
 
 
-def run():
+# ------------------------
+# Main Program
+# ------------------------
 
-    system = MemorySystem()
+def main():
+    memory = MemorySystem()
+    memory.show_configuration()
 
     print("\nCommands:")
-    print("LOAD <address> <data>")
-    print("R <address>")
-    print("W <address> <data>")
-    print("SHOW")
-    print("Q")
+    print("  LOAD <address> <data>")
+    print("  R <address>")
+    print("  W <address> <data>")
+    print("  SHOW")
+    print("  Q")
 
     while True:
+        command = input("\nEnter command: ").strip()
 
-        cmd = input("\n>>> ").split()
-
-        if not cmd:
+        if not command:
             continue
 
-        if cmd[0].upper() == "LOAD":
-            system.load(cmd[1], cmd[2])
+        parts = command.split()
+        action = parts[0].upper()
 
-        elif cmd[0].upper() == "R":
-            system.fetch(cmd[1])
+        try:
+            if action == "LOAD":
+                if len(parts) != 3:
+                    print("Usage: LOAD <address> <data>")
+                    continue
 
-        elif cmd[0].upper() == "W":
-            system.write(cmd[1], cmd[2])
+                address = parts[1]
+                data = parts[2]
+                memory.load(address, data)
 
-        elif cmd[0].upper() == "SHOW":
-            system.show()
+            elif action == "R":
+                if len(parts) != 2:
+                    print("Usage: R <address>")
+                    continue
 
-        elif cmd[0].upper() == "Q":
-            print("Exiting simulator.")
-            break
+                address = parts[1]
+                memory.read(address)
 
-        else:
-            print("Invalid command")
+            elif action == "W":
+                if len(parts) != 3:
+                    print("Usage: W <address> <data>")
+                    continue
+
+                address = parts[1]
+                data = parts[2]
+                memory.write(address, data)
+
+            elif action == "SHOW":
+                memory.show_final_state()
+
+            elif action == "Q":
+                print("\nExiting simulator.")
+                break
+
+            else:
+                print("Invalid command.")
+
+        except Exception as e:
+            print(f"Error: {e}")
 
 
 if __name__ == "__main__":
-    run()
+    main()
